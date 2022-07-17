@@ -77,8 +77,8 @@ function m.generate(wks)
 
 	-- Clear default flags
 	p.w('set(CMAKE_MSVC_RUNTIME_LIBRARY "")')
-	p.w('set(CMAKE_C_FLAGS "")')
-	p.w('set(CMAKE_CXX_FLAGS "")')
+	p.w('set(CMAKE_C_FLAGS "$ENV{CFLAGS}")')
+	p.w('set(CMAKE_CXX_FLAGS "$ENV{CXXFLAGS}")')
 	for _, cfg in pairs(cfgs) do
 		p.w('set(CMAKE_C_FLAGS_%s "")', string.upper(cfg))
 		p.w('set(CMAKE_CXX_FLAGS_%s "")', string.upper(cfg))
