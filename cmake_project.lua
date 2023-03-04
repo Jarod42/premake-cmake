@@ -121,20 +121,22 @@ function m.generate(prj)
 
 		-- include dirs
 
+		_p('if(CMAKE_BUILD_TYPE STREQUAL %s) # Include dirs', cmake.cfgname(cfg))
 		if #cfg.externalincludedirs > 0 then
-			_p('target_include_directories("%s" SYSTEM PRIVATE', prj.name)
+			_p(1, 'target_include_directories("%s" SYSTEM PRIVATE', prj.name)
 			for _, includedir in ipairs(cfg.externalincludedirs) do
-				_x(1, '$<$<CONFIG:%s>:%s>', cmake.cfgname(cfg), includedir)
+				_x(2, '%s', includedir)
 			end
-			_p(')')
+			_p(1, ')')
 		end
 		if #cfg.includedirs > 0 then
-			_p('target_include_directories("%s" PRIVATE', prj.name)
+			_p(1, 'target_include_directories("%s" PRIVATE', prj.name)
 			for _, includedir in ipairs(cfg.includedirs) do
-				_x(1, '$<$<CONFIG:%s>:%s>', cmake.cfgname(cfg), includedir)
+				_x(2, '%s', includedir)
 			end
-			_p(')')
+			_p(1, ')')
 		end
+		_p('endif()')
 
 		if #cfg.forceincludes > 0 then
 			_p('if (MSVC)')
@@ -154,13 +156,18 @@ function m.generate(prj)
 		end
 
 		-- lib dirs
+
+		-- Don't really know if this has the same issue as Include Directories on Windows
+		--  though it doesn't hurt to have this if statement.
+		_p('if(CMAKE_BUILD_TYPE STREQUAL %s) # Lib dirs', cmake.cfgname(cfg))
 		if #cfg.libdirs > 0 then
-			_p('target_link_directories("%s" PRIVATE', prj.name)
+			_p(1, 'target_link_directories("%s" PRIVATE', prj.name)
 			for _, libdir in ipairs(cfg.libdirs) do
-				_p(1, '$<$<CONFIG:%s>:%s>', cmake.cfgname(cfg), libdir)
+				_p(2, '%s', libdir)
 			end
-			_p(')')
+			_p(1, ')')
 		end
+		_p('endif()')
 
 		-- libs
 		local uselinkgroups = isclangorgcc and cfg.linkgroups == p.ON
