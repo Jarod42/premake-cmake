@@ -125,14 +125,14 @@ function m.generate(prj)
 		if #cfg.externalincludedirs > 0 then
 			_p(1, 'target_include_directories("%s" SYSTEM PRIVATE', prj.name)
 			for _, includedir in ipairs(cfg.externalincludedirs) do
-				_x(2, '%s', includedir)
+				_x(2, '%s', path.getrelative(prj.workspace.location, includedir))
 			end
 			_p(1, ')')
 		end
 		if #cfg.includedirs > 0 then
 			_p(1, 'target_include_directories("%s" PRIVATE', prj.name)
 			for _, includedir in ipairs(cfg.includedirs) do
-				_x(2, '%s', includedir)
+				_x(2, '%s', path.getrelative(prj.workspace.location, includedir))
 			end
 			_p(1, ')')
 		end
@@ -157,13 +157,11 @@ function m.generate(prj)
 
 		-- lib dirs
 
-		-- Don't really know if this has the same issue as Include Directories on Windows
-		--  though it doesn't hurt to have this if statement.
 		_p('if(CMAKE_BUILD_TYPE STREQUAL %s) # Lib dirs', cmake.cfgname(cfg))
 		if #cfg.libdirs > 0 then
 			_p(1, 'target_link_directories("%s" PRIVATE', prj.name)
 			for _, libdir in ipairs(cfg.libdirs) do
-				_p(2, '%s', libdir)
+				_p(2, '%s', path.getrelative(prj.workspace.location, libdir))
 			end
 			_p(1, ')')
 		end
