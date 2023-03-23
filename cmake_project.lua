@@ -119,20 +119,22 @@ function m.generate(prj)
 		_p(1,')')
 
 		-- include dirs
-
-		if #cfg.externalincludedirs > 0 then
-			_p(1, 'target_include_directories("%s" SYSTEM PRIVATE', prj.name)
-			for _, includedir in ipairs(cfg.externalincludedirs) do
-				_x(2, '"%s"', includedir)
+		
+		if cfg.externalincludedirs ~= nil then
+			if #cfg.externalincludedirs > 0 then
+				_p(1, 'target_include_directories("%s" SYSTEM PRIVATE', prj.name)
+				for _, includedir in ipairs(cfg.externalincludedirs) do
+					_x(2, '"%s"', includedir)
+				end
+				_p(1, ')')
 			end
-			_p(1, ')')
-		end
-		if #cfg.includedirs > 0 then
-			_p(1, 'target_include_directories("%s" PRIVATE', prj.name)
-			for _, includedir in ipairs(cfg.includedirs) do
-				_x(2, '"%s"', includedir)
+			if #cfg.includedirs > 0 then
+				_p(1, 'target_include_directories("%s" PRIVATE', prj.name)
+				for _, includedir in ipairs(cfg.includedirs) do
+					_x(2, '"%s"', includedir)
+				end
+				_p(1, ')')
 			end
-			_p(1, ')')
 		end
 
 		if #cfg.forceincludes > 0 then
