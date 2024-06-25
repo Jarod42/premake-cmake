@@ -27,7 +27,7 @@ end
 
 function m.getcompiler(cfg)
 	local default = iif(cfg.system == p.WINDOWS, "msc", "clang")
-	local toolset = p.tools[_OPTIONS.cc or cfg.toolset or default]
+	local toolset, toolset_version = p.tools.canonical(_OPTIONS.cc or cfg.toolset or default)
 	if not toolset then
 		error("Invalid toolset '" + (_OPTIONS.cc or cfg.toolset) + "'")
 	end

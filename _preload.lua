@@ -20,6 +20,14 @@ p.api.register {
 	kind = "string",
 }
 
+local default_toolset_map = {
+	["windows"] = "msc-v142", -- Visual Studio 2019
+	["macosx"] = "clang",
+	["linux"] = "gcc",
+	["_"] = "gcc", -- default
+}
+local default_toolset = default_toolset_map[os.target()] or default_toolset_map["_"]
+
 newaction
 {
 	-- Metadata for the command line and help system
@@ -27,7 +35,7 @@ newaction
 	trigger         = "cmake",
 	shortname       = "CMake",
 	description     = "Generate CMake file",
-	toolset         = "clang",
+	toolset         = default_toolset,
 
 	-- The capabilities of this action
 
