@@ -592,7 +592,7 @@ function m.generate(prj)
 		--local custom_target_by_cfg = {}
 		for cfg in project.eachconfig(prj) do
 			if not custom_ouput_by_cfg[cfg]["compilebuildoutputs"] then
-				local config_prefix = (same_output_by_cfg and "") or cfg.buildcfg .. '_'
+				local config_prefix = (same_output_by_cfg and "") or cmake.cfgname(cfg) .. '_'
 				local target_name = 'CUSTOM_TARGET_' .. config_prefix .. filename:gsub('/', '_'):gsub('\\', '_')
 				--custom_target_by_cfg[cfg] = target_name
 				_p(0, 'add_custom_target(%s DEPENDS %s)', target_name, table.implode(custom_ouput_by_cfg[cfg]["outputs"],"",""," "))

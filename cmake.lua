@@ -36,13 +36,20 @@ function cmake.generateProject(prj)
     end
 end
 
-function cmake.cfgname(cfg)
-    local cfgname = cfg.buildcfg
-    if cmake.workspace.multiplePlatforms then
-        -- CMake breaks if "|" is used here
-        cfgname = string.format("%s-%s", cfg.platform, cfg.buildcfg)
+local function normalize_identifier(name)
+    local res = string.gsub(name, "[^a-zA-Z0-9_]", "_")
+    if res ~= name then
+        premake.warnOnce("cmake_identifier_" .. name, 'configuration "' .. name .. '" contains unsuported characters, replaced by "' .. res .. '"')
     end
-    return cfgname
+    return res
+end
+
+function cmake.cfgname(cfg)
+    if cmake.workspace.multiplePlatforms then
+        return string.format("%s_%s", normalize_identifier(cfg.platform), normalize_identifier(cfg.buildcfg))
+    else
+        return normalize_identifier(cfg.buildcfg)
+    end
 end
 
 function cmake.cleanWorkspace(wks)
