@@ -149,6 +149,112 @@ local function generator_expression(prj, callback, mode)
 	end
 end
 
+local function generate_prebuild(prj)
+	local prebuildcommands, same_output_by_cfg = generator_expression(prj, function(cfg)
+		local res = {}
+		if cfg.prebuildmessage or #cfg.prebuildcommands > 0 then
+			if cfg.prebuildmessage then
+				table.insert(res, os.translateCommandsAndPaths("{ECHO} " .. m.quote(cfg.prebuildmessage), cfg.project.basedir, cfg.project.location))
+			end
+			res = table.join(res, os.translateCommandsAndPaths(cfg.prebuildcommands, cfg.project.basedir, cfg.project.location))
+		end
+		return res
+	end, table_expression)
+	if #prebuildcommands == 0 then
+		return
+	end
+	local commands = {}
+	if not same_output_by_cfg then
+		for i, command in ipairs(prebuildcommands) do
+			local variable_name = string.format("PREBUILD_COMMAND_%s_%i", prj.name, i)
+			_p(0, 'SET(%s %s)', variable_name, command)
+			commands[i] = '"${' .. variable_name .. '}"'
+		end
+	else
+		commands = prebuildcommands
+	end
+	-- add_custom_command PRE_BUILD runs just before generating the target
+	-- so instead, use add_custom_target to run it before any rule (as obj)
+	_p(0, 'add_custom_target(prebuild-%s', prj.name)
+	for _, command in ipairs(commands) do
+		_p(1, 'COMMAND %s', command)
+	end
+	if not same_output_by_cfg then
+		_p(1, 'COMMAND_EXPAND_LISTS')
+	end
+	_p(0, ')')
+	_p(0, 'add_dependencies(%s prebuild-%s)', prj.name, prj.name)
+end
+
+local function generate_prelink(prj)
+	local prelinkcommands, same_output_by_cfg = generator_expression(prj, function(cfg)
+		local res = {}
+		if cfg.prelinkmessage or #cfg.prelinkcommands > 0 then
+			if cfg.prelinkmessage then
+				table.insert(res, os.translateCommandsAndPaths("{ECHO} " .. m.quote(cfg.prelinkmessage), cfg.project.basedir, cfg.project.location))
+			end
+			res = table.join(res, os.translateCommandsAndPaths(cfg.prelinkcommands, cfg.project.basedir, cfg.project.location))
+		end
+		return res
+	end, table_expression)
+	if #prelinkcommands == 0 then
+		return
+	end
+	local commands = {}
+	if not same_output_by_cfg then
+		for i, command in ipairs(prelinkcommands) do
+			local variable_name = string.format("PRELINK_COMMAND_%s_%i", prj.name, i)
+			_p(0, 'SET(%s %s)', variable_name, command)
+			commands[i] = '"${' .. variable_name .. '}"'
+		end
+	else
+		commands = prelinkcommands
+	end
+	_p(0, 'add_custom_command(TARGET %s PRE_LINK', prj.name)
+	for _, command in ipairs(commands) do
+		_p(1, 'COMMAND %s', command)
+	end
+	if not same_output_by_cfg then
+		_p(1, 'COMMAND_EXPAND_LISTS')
+	end
+	_p(0, ')')
+end
+
+local function generate_postbuild(prj)
+	local postbuildcommands, same_output_by_cfg = generator_expression(prj, function(cfg)
+		local res = {}
+		if cfg.postbuildmessage or #cfg.postbuildcommands > 0 then
+			if cfg.postbuildmessage then
+				table.insert(res, os.translateCommandsAndPaths("{ECHO} " .. m.quote(cfg.postbuildmessage), cfg.project.basedir, cfg.project.location))
+			end
+			res = table.join(res, os.translateCommandsAndPaths(cfg.postbuildcommands, cfg.project.basedir, cfg.project.location))
+		end
+		return res
+	end, table_expression)
+	if #postbuildcommands == 0 then
+		return
+	end
+	local commands = {}
+	if not same_output_by_cfg then
+		for i, command in ipairs(postbuildcommands) do
+			local variable_name = string.format("POSTBUILD_COMMAND_%i_%s", i, prj.name)
+			_p(0, 'SET(%s %s)', variable_name, command)
+			commands[i] = '"${' .. variable_name .. '}"'
+		end
+	else
+		commands = postbuildcommands
+	end
+
+	_p(0, 'add_custom_command(TARGET %s POST_BUILD', prj.name)
+	for _, command in ipairs(commands) do
+		_p(1, 'COMMAND %s', command)
+	end
+	if not same_output_by_cfg then
+		_p(1, 'COMMAND_EXPAND_LISTS')
+	end
+	_p(0, ')')
+end
+
 --
 -- Project: Generate the cmake project file.
 --
@@ -440,64 +546,13 @@ function m.generate(prj)
 	end
 
 	-- prebuild commands
-	local prebuildcommands = generator_expression(prj, function(cfg)
-		local res = {}
-		if cfg.prebuildmessage or #cfg.prebuildcommands > 0 then
-			if cfg.prebuildmessage then
-				table.insert(res, os.translateCommandsAndPaths("{ECHO} " .. m.quote(cfg.prebuildmessage), cfg.project.basedir, cfg.project.location))
-			end
-			res = table.join(res, os.translateCommandsAndPaths(cfg.prebuildcommands, cfg.project.basedir, cfg.project.location))
-		end
-		return res
-	end, table_expression)
-	if #prebuildcommands > 0 then
-		-- add_custom_command PRE_BUILD runs just before generating the target
-		-- so instead, use add_custom_target to run it before any rule (as obj)
-		_p(0, 'add_custom_target(prebuild-%s', prj.name)
-		for _, command in ipairs(prebuildcommands) do
-			_p(1, 'COMMAND %s', command)
-		end
-		_p(0, ')')
-		_p(0, 'add_dependencies(%s prebuild-%s)', prj.name, prj.name)
-	end
+	generate_prebuild(prj)
 
 	-- prelink commands
-	local prelinkcommands = generator_expression(prj, function(cfg)
-		local res = {}
-		if cfg.prelinkmessage or #cfg.prelinkcommands > 0 then
-			if cfg.prelinkmessage then
-				table.insert(res, os.translateCommandsAndPaths("{ECHO} " .. m.quote(cfg.prelinkmessage), cfg.project.basedir, cfg.project.location))
-			end
-			res = table.join(res, os.translateCommandsAndPaths(cfg.prelinkcommands, cfg.project.basedir, cfg.project.location))
-		end
-		return res
-	end, table_expression)
-	if #prelinkcommands > 0 then
-		_p(0, 'add_custom_command(TARGET %s PRE_LINK', prj.name)
-		for _, command in ipairs(prelinkcommands) do
-			_p(1, 'COMMAND %s', command)
-		end
-		_p(0, ')')
-	end
+	generate_prelink(prj)
 
 	-- postbuild commands
-	local postbuildcommands = generator_expression(prj, function(cfg)
-		local res = {}
-		if cfg.postbuildmessage or #cfg.postbuildcommands > 0 then
-			if cfg.postbuildmessage then
-				table.insert(res, os.translateCommandsAndPaths("{ECHO} " .. m.quote(cfg.postbuildmessage), cfg.project.basedir, cfg.project.location))
-			end
-			res = table.join(res, os.translateCommandsAndPaths(cfg.postbuildcommands, cfg.project.basedir, cfg.project.location))
-		end
-		return res
-	end, table_expression)
-	if #postbuildcommands > 0 then
-		_p(0, 'add_custom_command(TARGET %s PRE_LINK', prj.name)
-		for _, command in ipairs(postbuildcommands) do
-			_p(1, 'COMMAND %s', command)
-		end
-		_p(0, ')')
-	end
+	generate_postbuild(prj)
 
 	-- custom command
 --	local custom_output_directories_by_cfg = {}
