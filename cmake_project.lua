@@ -59,7 +59,7 @@ function m.files(cfg)
 	local files = {}
 
 	table.foreachi(prj._.files, function(node)
-		if node.flags.ExcludeFromBuild then
+		if node.excludefrombuild then
 			return
 		end
 		local filecfg = p.fileconfig.getconfig(node, cfg)
@@ -399,7 +399,7 @@ function m.generate(prj)
 	if #cppdialect > 0 then
 		local extension = generator_expression(prj, function(cfg) return iif(cfg.cppdialect:find('^gnu') == nil, {'NO'}, {'YES'}) end, one_expression)
 		local pic = generator_expression(prj, function(cfg) return iif(cfg.pic == 'On', {'True'}, {'False'}) end, one_expression)
-		local lto = generator_expression(prj, function(cfg) return iif(cfg.flags.LinkTimeOptimization, {'True'}, {'False'}) end, one_expression)
+		local lto = generator_expression(prj, function(cfg) return iif(cfg.linktimeoptimization, {'True'}, {'False'}) end, one_expression)
 		_p(0, 'set_target_properties("%s" PROPERTIES', prj.name)
 		_p(1, 'CXX_STANDARD %s', cppdialect)
 		_p(1, 'CXX_STANDARD_REQUIRED YES')
@@ -513,7 +513,7 @@ function m.generate(prj)
 	-- precompiled headers
 	local pch = generator_expression(prj, function(cfg)
 		-- copied from gmake2_cpp.lua
-		if not cfg.flags.NoPCH and cfg.pchheader then
+		if cfg.enablepch ~= p.OFF and cfg.pchheader then
 			local pch = cfg.pchheader
 			local found = false
 
