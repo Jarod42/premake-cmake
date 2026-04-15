@@ -7,6 +7,7 @@
 --              Manu Evans
 --              Jason Perkins
 --              Yehonatan Ballas
+--              alchemyyy
 -- Created:     2013/05/06
 -- Copyright:   (c) 2008-2020 Jason Perkins and the Premake project
 --
@@ -31,7 +32,7 @@ function cmake.generateProject(prj)
     p.eol("\r\n")
     p.indent("  ")
 
-    if project.isc(prj) or project.iscpp(prj) then
+    if project.isc(prj) or project.iscpp(prj) or prj.kind == "Utility" or prj.kind == "None" or prj.kind == "Makefile" or prj.kind == "SharedItems" then
         p.generate(prj, ".cmake", cmake.project.generate)
     end
 end

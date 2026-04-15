@@ -9,6 +9,7 @@
 --              Joel Linn
 --              UndefinedVertex
 --              Joris Dauphin
+--              alchemyyy
 -- Created:     2013/05/06
 -- Copyright:   (c) 2008-2024 Jason Perkins and the Premake project
 --
@@ -21,6 +22,51 @@ local cmake = p.modules.cmake
 
 cmake.project = {}
 local m = cmake.project
+
+-- CMake-native command token translations using ${CMAKE_COMMAND} -E
+-- This replaces the platform-specific translations (copy, cp, xcopy, etc.)
+-- with cross-platform CMake commands that work on all platforms.
+local cmake_command_tokens = {
+	chdir = function(v)
+		return "${CMAKE_COMMAND} -E chdir " .. path.normalize(v)
+	end,
+	copy = function(v)
+		return "${CMAKE_COMMAND} -E copy_directory " .. path.normalize(v)
+	end,
+	copyfile = function(v)
+		return "${CMAKE_COMMAND} -E copy " .. path.normalize(v)
+	end,
+	copyfileifnewer = function(v)
+		return "${CMAKE_COMMAND} -E copy_if_different " .. path.normalize(v)
+	end,
+	copydir = function(v)
+		return "${CMAKE_COMMAND} -E copy_directory " .. path.normalize(v)
+	end,
+	delete = function(v)
+		return "${CMAKE_COMMAND} -E rm -f " .. path.normalize(v)
+	end,
+	echo = function(v)
+		return "${CMAKE_COMMAND} -E echo " .. v
+	end,
+	linkdir = function(v)
+		return "${CMAKE_COMMAND} -E create_symlink " .. path.normalize(v)
+	end,
+	linkfile = function(v)
+		return "${CMAKE_COMMAND} -E create_symlink " .. path.normalize(v)
+	end,
+	mkdir = function(v)
+		return "${CMAKE_COMMAND} -E make_directory " .. path.normalize(v)
+	end,
+	move = function(v)
+		return "${CMAKE_COMMAND} -E rename " .. path.normalize(v)
+	end,
+	rmdir = function(v)
+		return "${CMAKE_COMMAND} -E rm -rf " .. path.normalize(v)
+	end,
+	touch = function(v)
+		return "${CMAKE_COMMAND} -E touch " .. path.normalize(v)
+	end,
+}
 
 function m.esc(s)
 	if type(s) == "table" then
@@ -103,7 +149,7 @@ local function generator_expression(prj, callback, mode)
 	local by_cfg = {}
 	for cfg in project.eachconfig(prj) do
 		local settings = callback(cfg)
-		
+
 		if not common then
 			common = table.arraycopy(settings)
 		else
@@ -154,9 +200,9 @@ local function generate_prebuild(prj)
 		local res = {}
 		if cfg.prebuildmessage or #cfg.prebuildcommands > 0 then
 			if cfg.prebuildmessage then
-				table.insert(res, os.translateCommandsAndPaths("{ECHO} " .. m.quote(cfg.prebuildmessage), cfg.project.basedir, cfg.project.location))
+				table.insert(res, os.translateCommandsAndPaths("{ECHO} " .. m.quote(cfg.prebuildmessage), cfg.project.basedir, cfg.project.location, cmake_command_tokens))
 			end
-			res = table.join(res, os.translateCommandsAndPaths(cfg.prebuildcommands, cfg.project.basedir, cfg.project.location))
+			res = table.join(res, os.translateCommandsAndPaths(cfg.prebuildcommands, cfg.project.basedir, cfg.project.location, cmake_command_tokens))
 		end
 		return res
 	end, table_expression)
@@ -191,9 +237,9 @@ local function generate_prelink(prj)
 		local res = {}
 		if cfg.prelinkmessage or #cfg.prelinkcommands > 0 then
 			if cfg.prelinkmessage then
-				table.insert(res, os.translateCommandsAndPaths("{ECHO} " .. m.quote(cfg.prelinkmessage), cfg.project.basedir, cfg.project.location))
+				table.insert(res, os.translateCommandsAndPaths("{ECHO} " .. m.quote(cfg.prelinkmessage), cfg.project.basedir, cfg.project.location, cmake_command_tokens))
 			end
-			res = table.join(res, os.translateCommandsAndPaths(cfg.prelinkcommands, cfg.project.basedir, cfg.project.location))
+			res = table.join(res, os.translateCommandsAndPaths(cfg.prelinkcommands, cfg.project.basedir, cfg.project.location, cmake_command_tokens))
 		end
 		return res
 	end, table_expression)
@@ -225,9 +271,9 @@ local function generate_postbuild(prj)
 		local res = {}
 		if cfg.postbuildmessage or #cfg.postbuildcommands > 0 then
 			if cfg.postbuildmessage then
-				table.insert(res, os.translateCommandsAndPaths("{ECHO} " .. m.quote(cfg.postbuildmessage), cfg.project.basedir, cfg.project.location))
+				table.insert(res, os.translateCommandsAndPaths("{ECHO} " .. m.quote(cfg.postbuildmessage), cfg.project.basedir, cfg.project.location, cmake_command_tokens))
 			end
-			res = table.join(res, os.translateCommandsAndPaths(cfg.postbuildcommands, cfg.project.basedir, cfg.project.location))
+			res = table.join(res, os.translateCommandsAndPaths(cfg.postbuildcommands, cfg.project.basedir, cfg.project.location, cmake_command_tokens))
 		end
 		return res
 	end, table_expression)
@@ -261,7 +307,28 @@ end
 function m.generate(prj)
 	p.utf8()
 
-	if prj.kind == 'Utility' then
+	if prj.kind == 'Utility' or prj.kind == 'None' then
+		-- Generate a custom target for Utility/None projects
+		local files = generator_expression(prj, m.files, table_expression)
+		_p('add_custom_target("%s" SOURCES', prj.name)
+		for _, file in ipairs(files) do
+			_p(1, '%s', file)
+		end
+		_p(')')
+		-- prebuild/postbuild still apply
+		generate_prebuild(prj)
+		generate_postbuild(prj)
+		return
+	end
+
+	if prj.kind == 'SharedItems' then
+		-- SharedItems are header-only / interface libraries
+		local files = generator_expression(prj, m.files, table_expression)
+		_p('add_library("%s" INTERFACE', prj.name)
+		for _, file in ipairs(files) do
+			_p(1, '%s', file)
+		end
+		_p(')')
 		return
 	end
 
@@ -272,17 +339,69 @@ function m.generate(prj)
 		_p('add_library("%s" STATIC', prj.name)
 	elseif prj.kind == 'SharedLib' then
 		_p('add_library("%s" SHARED', prj.name)
+	elseif prj.kind == 'Makefile' then
+		-- Makefile projects become custom targets
+		_p('add_custom_target("%s"', prj.name)
+		for _, file in ipairs(generator_expression(prj, m.files, table_expression)) do
+			_p(1, '%s', file)
+		end
+		_p(')')
+		-- Makefile projects use buildcommands/rebuildcommands/cleancommands
+		-- which are handled through pre/post build
+		generate_prebuild(prj)
+		generate_postbuild(prj)
+		path.getDefaultSeparator = oldGetDefaultSeparator
+		return
 	else
 		if prj.executable_suffix then
 			_p('set(CMAKE_EXECUTABLE_SUFFIX "%s")', prj.executable_suffix)
 		end
-		_p('add_executable("%s"', prj.name)
+		-- WindowedApp gets the WIN32 flag for Windows subsystem
+		if prj.kind == 'WindowedApp' then
+			_p('add_executable("%s" WIN32', prj.name)
+		else
+			_p('add_executable("%s"', prj.name)
+		end
 	end
 	for _, file in ipairs(generator_expression(prj, m.files, table_expression)) do
 		_p(1, '%s', file);
 	end
 	_p(')')
+
+	-- output name
 	_p(0, 'set_target_properties("%s" PROPERTIES OUTPUT_NAME %s)', prj.name, generator_expression(prj, function(cfg) return {cfg.buildtarget.basename} end, one_expression))
+
+	-- target prefix/suffix/extension overrides
+	local targetprefix = generator_expression(prj, function(cfg)
+		if cfg.targetprefix and cfg.targetprefix ~= "" then
+			return {cfg.targetprefix}
+		end
+		return {}
+	end, one_expression)
+	if #targetprefix > 0 then
+		_p(0, 'set_target_properties("%s" PROPERTIES PREFIX "%s")', prj.name, targetprefix)
+	end
+
+	local targetsuffix = generator_expression(prj, function(cfg)
+		if cfg.targetsuffix and cfg.targetsuffix ~= "" then
+			return {cfg.targetsuffix}
+		end
+		return {}
+	end, one_expression)
+	if #targetsuffix > 0 then
+		_p(0, 'set_target_properties("%s" PROPERTIES SUFFIX "%s")', prj.name, targetsuffix)
+	end
+
+	local targetextension = generator_expression(prj, function(cfg)
+		if cfg.targetextension and cfg.targetextension ~= "" then
+			return {cfg.targetextension}
+		end
+		return {}
+	end, one_expression)
+	if #targetextension > 0 then
+		_p(0, 'set_target_properties("%s" PROPERTIES SUFFIX "%s")', prj.name, targetextension)
+	end
+
 	-- output dir
 	_p(0, 'set_target_properties("%s" PROPERTIES', prj.name)
  	for cfg in project.eachconfig(prj) do
@@ -295,7 +414,24 @@ function m.generate(prj)
 	end
 	_p(0, ')')
 
-	-- dependencies
+	-- object directory (intermediate directory)
+	local objdir = generator_expression(prj, function(cfg)
+		if cfg.objdir then
+			return {path.getrelative(prj.workspace.location, cfg.objdir)}
+		end
+		return {}
+	end, one_expression)
+	if #objdir > 0 then
+		_p(0, 'set_target_properties("%s" PROPERTIES', prj.name)
+		for cfg in project.eachconfig(prj) do
+			if cfg.objdir then
+				_p(1, 'VS_INTERMEDIATE_DIRECTORY_%s "%s"', cmake.cfgname(cfg):upper(), path.getrelative(prj.workspace.location, cfg.objdir))
+			end
+		end
+		_p(0, ')')
+	end
+
+	-- dependencies (from links)
 	local dependencies = project.getdependencies(prj)
 	if #dependencies > 0 then
 		_p(0, 'add_dependencies("%s"', prj.name)
@@ -303,6 +439,21 @@ function m.generate(prj)
 			_p(1, '"%s"', dependency.name)
 		end
 		_p(0,')')
+	end
+
+	-- dependson (non-linking build order dependencies)
+	local dependson_list = generator_expression(prj, function(cfg)
+		if cfg.dependson and #cfg.dependson > 0 then
+			return cfg.dependson
+		end
+		return {}
+	end, table_expression)
+	if #dependson_list > 0 then
+		_p(0, 'add_dependencies("%s"', prj.name)
+		for _, dep in ipairs(dependson_list) do
+			_p(1, '"%s"', dep)
+		end
+		_p(0, ')')
 	end
 
 	-- include dirs
@@ -322,10 +473,10 @@ function m.generate(prj)
 		end
 		_p(0, ')')
 	end
-	
+
 	local msvc_frameworkdirs = generator_expression(prj, function(cfg) return p.tools.msc.getincludedirs(cfg, {}, {}, cfg.frameworkdirs, cfg.includedirsafter) end)
 	local gcc_frameworkdirs = generator_expression(prj, function(cfg) return p.tools.gcc.getincludedirs(cfg, {}, {}, cfg.frameworkdirs, cfg.includedirsafter) end)
-	
+
 	if #msvc_frameworkdirs > 0 or #gcc_frameworkdirs > 0 then
 		_p(0, 'if (MSVC)')
 		_p(1, 'target_compile_options("%s" PRIVATE %s)', prj.name, msvc_frameworkdirs)
@@ -357,13 +508,32 @@ function m.generate(prj)
 
 	local msvc_undefines = generator_expression(prj, function(cfg) return p.tools.msc.getundefines(cfg.undefines) end)
 	local gcc_undefines = generator_expression(prj, function(cfg) return p.tools.gcc.getundefines(cfg.undefines) end)
-	
+
 	if #msvc_undefines > 0 or #gcc_undefines > 0 then
 		_p(0, 'if (MSVC)')
 		_p(1, 'target_compile_options("%s" PRIVATE %s)', prj.name, msvc_undefines)
 		_p(0, 'else()')
 		_p(1, 'target_compile_options("%s" PRIVATE %s)', prj.name, gcc_undefines)
 		_p(0, 'endif()')
+	end
+
+	-- character set defines
+	local charset_defines = generator_expression(prj, function(cfg)
+		local res = {}
+		if cfg.characterset == "Unicode" then
+			table.insert(res, "UNICODE")
+			table.insert(res, "_UNICODE")
+		elseif cfg.characterset == "MBCS" then
+			table.insert(res, "_MBCS")
+		end
+		return res
+	end, table_expression)
+	if #charset_defines > 0 then
+		_p(0, 'target_compile_definitions("%s" PRIVATE', prj.name)
+		for _, define in ipairs(charset_defines) do
+			_p(1, '%s', define)
+		end
+		_p(0, ')')
 	end
 
 	-- setting build options
@@ -377,39 +547,660 @@ function m.generate(prj)
 	end
 
 	-- C++ standard
-	-- only need to configure it specified
 	local cppdialect = generator_expression(prj, function(cfg)
 		if (cfg.cppdialect ~= nil and cfg.cppdialect ~= '') or cfg.cppdialect == 'Default' then
 			local standard = {
 				["C++98"] = 98,
+				["C++0x"] = 11,
 				["C++11"] = 11,
+				["C++1y"] = 14,
 				["C++14"] = 14,
+				["C++1z"] = 17,
 				["C++17"] = 17,
+				["C++2a"] = 20,
 				["C++20"] = 20,
+				["C++2b"] = 23,
+				["C++23"] = 23,
+				["C++latest"] = 23,
 				["gnu++98"] = 98,
+				["gnu++0x"] = 11,
 				["gnu++11"] = 11,
+				["gnu++1y"] = 14,
 				["gnu++14"] = 14,
+				["gnu++1z"] = 17,
 				["gnu++17"] = 17,
-				["gnu++20"] = 20
+				["gnu++2a"] = 20,
+				["gnu++20"] = 20,
+				["gnu++2b"] = 23,
+				["gnu++23"] = 23,
 			}
-			return { tostring(standard[cfg.cppdialect]) }
+			local val = standard[cfg.cppdialect]
+			if val then
+				return { tostring(val) }
+			end
 		end
 		return {}
 	end, one_expression)
 	if #cppdialect > 0 then
 		local extension = generator_expression(prj, function(cfg) return iif(cfg.cppdialect:find('^gnu') == nil, {'NO'}, {'YES'}) end, one_expression)
-		local pic = generator_expression(prj, function(cfg) return iif(cfg.pic == 'On', {'True'}, {'False'}) end, one_expression)
-		local lto = generator_expression(prj, function(cfg) return iif(cfg.linktimeoptimization, {'True'}, {'False'}) end, one_expression)
 		_p(0, 'set_target_properties("%s" PROPERTIES', prj.name)
 		_p(1, 'CXX_STANDARD %s', cppdialect)
 		_p(1, 'CXX_STANDARD_REQUIRED YES')
 		_p(1, 'CXX_EXTENSIONS %s', extension)
-		_p(1, 'POSITION_INDEPENDENT_CODE %s', pic)
-		_p(1, 'INTERPROCEDURAL_OPTIMIZATION %s', lto)
 		_p(0, ')')
 	end
 
-	-- CFLAGS/CXXFLAGS
+	-- C standard
+	local cdialect = generator_expression(prj, function(cfg)
+		if cfg.cdialect ~= nil and cfg.cdialect ~= '' and cfg.cdialect ~= 'Default' then
+			local standard = {
+				["C89"] = 90,
+				["C90"] = 90,
+				["C99"] = 99,
+				["C11"] = 11,
+				["C17"] = 17,
+				["C23"] = 23,
+				["gnu89"] = 90,
+				["gnu90"] = 90,
+				["gnu99"] = 99,
+				["gnu11"] = 11,
+				["gnu17"] = 17,
+				["gnu23"] = 23,
+			}
+			local val = standard[cfg.cdialect]
+			if val then
+				return { tostring(val) }
+			end
+		end
+		return {}
+	end, one_expression)
+	if #cdialect > 0 then
+		local c_extension = generator_expression(prj, function(cfg) return iif(cfg.cdialect and cfg.cdialect:find('^gnu') ~= nil, {'YES'}, {'NO'}) end, one_expression)
+		_p(0, 'set_target_properties("%s" PROPERTIES', prj.name)
+		_p(1, 'C_STANDARD %s', cdialect)
+		_p(1, 'C_STANDARD_REQUIRED YES')
+		_p(1, 'C_EXTENSIONS %s', c_extension)
+		_p(0, ')')
+	end
+
+	-- Position Independent Code (independent of dialect)
+	local pic = generator_expression(prj, function(cfg)
+		if cfg.pic == 'On' then
+			return {'True'}
+		elseif cfg.pic == 'Off' then
+			return {'False'}
+		end
+		return {}
+	end, one_expression)
+	if #pic > 0 then
+		_p(0, 'set_target_properties("%s" PROPERTIES POSITION_INDEPENDENT_CODE %s)', prj.name, pic)
+	end
+
+	-- Link-Time Optimization (independent of dialect)
+	local lto = generator_expression(prj, function(cfg)
+		if cfg.linktimeoptimization and cfg.linktimeoptimization ~= "Off" and cfg.linktimeoptimization ~= "Default" then
+			return {'True'}
+		elseif cfg.linktimeoptimization == "Off" then
+			return {'False'}
+		end
+		return {}
+	end, one_expression)
+	if #lto > 0 then
+		_p(0, 'set_target_properties("%s" PROPERTIES INTERPROCEDURAL_OPTIMIZATION %s)', prj.name, lto)
+	end
+
+	-- compileas: force compilation language for source files
+	local compileas = generator_expression(prj, function(cfg)
+		if cfg.compileas == "C" then
+			return {"C"}
+		elseif cfg.compileas == "C++" then
+			return {"CXX"}
+		end
+		return {}
+	end, one_expression)
+	if #compileas > 0 then
+		_p(0, 'set_target_properties("%s" PROPERTIES LINKER_LANGUAGE %s)', prj.name, compileas)
+	end
+
+	-- MSVC runtime library
+	local msvc_runtime = generator_expression(prj, function(cfg)
+		local rt = ""
+		if cfg.staticruntime == "On" then
+			rt = "MultiThreaded"
+		elseif cfg.staticruntime == "Off" or cfg.staticruntime == "Default" or cfg.staticruntime == nil then
+			rt = "MultiThreadedDLL"
+		else
+			return {}
+		end
+		if cfg.runtime == "Debug" then
+			rt = rt .. "Debug"
+		end
+		return {rt}
+	end, one_expression)
+	if #msvc_runtime > 0 then
+		_p(0, 'set_target_properties("%s" PROPERTIES MSVC_RUNTIME_LIBRARY "%s")', prj.name, msvc_runtime)
+	end
+
+	-- Optimization
+	local optimize_options = generator_expression(prj, function(cfg)
+		local res = {}
+		if cfg.optimize then
+			if cfg.optimize == "Off" then
+				table.insert(res, '$<$<CXX_COMPILER_ID:MSVC>:/Od>')
+				table.insert(res, '$<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-O0>')
+			elseif cfg.optimize == "On" or cfg.optimize == "Debug" then
+				table.insert(res, '$<$<CXX_COMPILER_ID:MSVC>:/Og>')
+				table.insert(res, '$<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Og>')
+			elseif cfg.optimize == "Size" then
+				table.insert(res, '$<$<CXX_COMPILER_ID:MSVC>:/O1>')
+				table.insert(res, '$<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Os>')
+			elseif cfg.optimize == "Speed" then
+				table.insert(res, '$<$<CXX_COMPILER_ID:MSVC>:/O2>')
+				table.insert(res, '$<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-O2>')
+			elseif cfg.optimize == "Full" then
+				table.insert(res, '$<$<CXX_COMPILER_ID:MSVC>:/Ox>')
+				table.insert(res, '$<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-O3>')
+			end
+		end
+		return res
+	end, table_expression)
+	if #optimize_options > 0 then
+		_p(0, 'target_compile_options("%s" PRIVATE', prj.name)
+		for _, opt in ipairs(optimize_options) do
+			_p(1, '%s', opt)
+		end
+		_p(0, ')')
+	end
+
+	-- Debug symbols
+	local symbols_options = generator_expression(prj, function(cfg)
+		local res = {}
+		if cfg.symbols then
+			if cfg.symbols == "On" or cfg.symbols == "Full" then
+				table.insert(res, '$<$<CXX_COMPILER_ID:MSVC>:/Zi>')
+				table.insert(res, '$<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-g>')
+			elseif cfg.symbols == "FastLink" then
+				table.insert(res, '$<$<CXX_COMPILER_ID:MSVC>:/ZI>')
+				table.insert(res, '$<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-g>')
+			elseif cfg.symbols == "Off" then
+				table.insert(res, '$<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-g0>')
+			end
+		end
+		return res
+	end, table_expression)
+	if #symbols_options > 0 then
+		_p(0, 'target_compile_options("%s" PRIVATE', prj.name)
+		for _, opt in ipairs(symbols_options) do
+			_p(1, '%s', opt)
+		end
+		_p(0, ')')
+	end
+
+	-- Debug format (SplitDwarf etc.)
+	local debugformat_options = generator_expression(prj, function(cfg)
+		local res = {}
+		if cfg.debugformat then
+			if cfg.debugformat == "SplitDwarf" then
+				table.insert(res, '$<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-gsplit-dwarf>')
+			elseif cfg.debugformat == "Dwarf" then
+				table.insert(res, '$<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-gdwarf>')
+			elseif cfg.debugformat == "c7" then
+				table.insert(res, '$<$<CXX_COMPILER_ID:MSVC>:/Z7>')
+			end
+		end
+		return res
+	end, table_expression)
+	if #debugformat_options > 0 then
+		_p(0, 'target_compile_options("%s" PRIVATE', prj.name)
+		for _, opt in ipairs(debugformat_options) do
+			_p(1, '%s', opt)
+		end
+		_p(0, ')')
+	end
+
+	-- Warnings
+	local warnings_options = generator_expression(prj, function(cfg)
+		local res = {}
+		if cfg.warnings then
+			if cfg.warnings == "Off" then
+				table.insert(res, '$<$<CXX_COMPILER_ID:MSVC>:/W0>')
+				table.insert(res, '$<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-w>')
+			elseif cfg.warnings == "Default" then
+				-- default, no flags needed
+			elseif cfg.warnings == "High" then
+				table.insert(res, '$<$<CXX_COMPILER_ID:MSVC>:/W4>')
+				table.insert(res, '$<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall>')
+			elseif cfg.warnings == "Extra" then
+				table.insert(res, '$<$<CXX_COMPILER_ID:MSVC>:/W4>')
+				table.insert(res, '$<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall>')
+				table.insert(res, '$<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wextra>')
+			elseif cfg.warnings == "Everything" then
+				table.insert(res, '$<$<CXX_COMPILER_ID:MSVC>:/Wall>')
+				table.insert(res, '$<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Weverything>')
+			end
+		end
+		return res
+	end, table_expression)
+	if #warnings_options > 0 then
+		_p(0, 'target_compile_options("%s" PRIVATE', prj.name)
+		for _, opt in ipairs(warnings_options) do
+			_p(1, '%s', opt)
+		end
+		_p(0, ')')
+	end
+
+	-- External warnings (for system/external includes)
+	local externalwarnings_options = generator_expression(prj, function(cfg)
+		local res = {}
+		if cfg.externalwarnings then
+			if cfg.externalwarnings == "Off" then
+				table.insert(res, '$<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wno-system-headers>')
+			elseif cfg.externalwarnings == "Default" then
+				-- default, no flags needed
+			elseif cfg.externalwarnings == "High" or cfg.externalwarnings == "Extra" or cfg.externalwarnings == "Everything" then
+				table.insert(res, '$<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wsystem-headers>')
+			end
+		end
+		return res
+	end, table_expression)
+	if #externalwarnings_options > 0 then
+		_p(0, 'target_compile_options("%s" PRIVATE', prj.name)
+		for _, opt in ipairs(externalwarnings_options) do
+			_p(1, '%s', opt)
+		end
+		_p(0, ')')
+	end
+
+	-- Enable/disable specific warnings
+	local enablewarnings_opts = generator_expression(prj, function(cfg)
+		local res = {}
+		if cfg.enablewarnings and #cfg.enablewarnings > 0 then
+			for _, w in ipairs(cfg.enablewarnings) do
+				table.insert(res, '$<$<CXX_COMPILER_ID:MSVC>:/w1' .. w .. '>')
+				table.insert(res, '$<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-W' .. w .. '>')
+			end
+		end
+		return res
+	end, table_expression)
+	if #enablewarnings_opts > 0 then
+		_p(0, 'target_compile_options("%s" PRIVATE', prj.name)
+		for _, opt in ipairs(enablewarnings_opts) do
+			_p(1, '%s', opt)
+		end
+		_p(0, ')')
+	end
+
+	local disablewarnings_opts = generator_expression(prj, function(cfg)
+		local res = {}
+		if cfg.disablewarnings and #cfg.disablewarnings > 0 then
+			for _, w in ipairs(cfg.disablewarnings) do
+				table.insert(res, '$<$<CXX_COMPILER_ID:MSVC>:/wd' .. w .. '>')
+				table.insert(res, '$<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wno-' .. w .. '>')
+			end
+		end
+		return res
+	end, table_expression)
+	if #disablewarnings_opts > 0 then
+		_p(0, 'target_compile_options("%s" PRIVATE', prj.name)
+		for _, opt in ipairs(disablewarnings_opts) do
+			_p(1, '%s', opt)
+		end
+		_p(0, ')')
+	end
+
+	-- Fatal warnings (treat warnings as errors)
+	local fatalwarnings_opts = generator_expression(prj, function(cfg)
+		local res = {}
+		if cfg.fatalwarnings and #cfg.fatalwarnings > 0 then
+			table.insert(res, '$<$<CXX_COMPILER_ID:MSVC>:/WX>')
+			table.insert(res, '$<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Werror>')
+		end
+		return res
+	end, table_expression)
+	if #fatalwarnings_opts > 0 then
+		_p(0, 'target_compile_options("%s" PRIVATE', prj.name)
+		for _, opt in ipairs(fatalwarnings_opts) do
+			_p(1, '%s', opt)
+		end
+		_p(0, ')')
+	end
+
+	-- RTTI
+	local rtti_options = generator_expression(prj, function(cfg)
+		local res = {}
+		if cfg.rtti then
+			if cfg.rtti == "Off" then
+				table.insert(res, '$<$<CXX_COMPILER_ID:MSVC>:/GR->')
+				table.insert(res, '$<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-fno-rtti>')
+			elseif cfg.rtti == "On" then
+				table.insert(res, '$<$<CXX_COMPILER_ID:MSVC>:/GR>')
+				table.insert(res, '$<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-frtti>')
+			end
+		end
+		return res
+	end, table_expression)
+	if #rtti_options > 0 then
+		_p(0, 'target_compile_options("%s" PRIVATE', prj.name)
+		for _, opt in ipairs(rtti_options) do
+			_p(1, '%s', opt)
+		end
+		_p(0, ')')
+	end
+
+	-- Exception handling
+	local exceptions_options = generator_expression(prj, function(cfg)
+		local res = {}
+		if cfg.exceptionhandling then
+			if cfg.exceptionhandling == "Off" then
+				table.insert(res, '$<$<CXX_COMPILER_ID:MSVC>:/EHs-c->')
+				table.insert(res, '$<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-fno-exceptions>')
+			elseif cfg.exceptionhandling == "On" then
+				table.insert(res, '$<$<CXX_COMPILER_ID:MSVC>:/EHsc>')
+				table.insert(res, '$<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-fexceptions>')
+			elseif cfg.exceptionhandling == "SEH" then
+				table.insert(res, '$<$<CXX_COMPILER_ID:MSVC>:/EHa>')
+			elseif cfg.exceptionhandling == "CThrow" then
+				table.insert(res, '$<$<CXX_COMPILER_ID:MSVC>:/EHsc>')
+			end
+		end
+		return res
+	end, table_expression)
+	if #exceptions_options > 0 then
+		_p(0, 'target_compile_options("%s" PRIVATE', prj.name)
+		for _, opt in ipairs(exceptions_options) do
+			_p(1, '%s', opt)
+		end
+		_p(0, ')')
+	end
+
+	-- Floating point model
+	local floatingpoint_options = generator_expression(prj, function(cfg)
+		local res = {}
+		if cfg.floatingpoint then
+			if cfg.floatingpoint == "Fast" then
+				table.insert(res, '$<$<CXX_COMPILER_ID:MSVC>:/fp:fast>')
+				table.insert(res, '$<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-ffast-math>')
+			elseif cfg.floatingpoint == "Strict" then
+				table.insert(res, '$<$<CXX_COMPILER_ID:MSVC>:/fp:strict>')
+				table.insert(res, '$<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-ffloat-store>')
+			end
+		end
+		return res
+	end, table_expression)
+	if #floatingpoint_options > 0 then
+		_p(0, 'target_compile_options("%s" PRIVATE', prj.name)
+		for _, opt in ipairs(floatingpoint_options) do
+			_p(1, '%s', opt)
+		end
+		_p(0, ')')
+	end
+
+	-- Symbol visibility
+	local visibility_val = generator_expression(prj, function(cfg)
+		if cfg.visibility then
+			local vis_map = {
+				["Default"] = "default",
+				["Hidden"] = "hidden",
+				["Internal"] = "internal",
+				["Protected"] = "protected",
+			}
+			local v = vis_map[cfg.visibility]
+			if v then
+				return {v}
+			end
+		end
+		return {}
+	end, one_expression)
+	if #visibility_val > 0 then
+		_p(0, 'set_target_properties("%s" PROPERTIES', prj.name)
+		_p(1, 'C_VISIBILITY_PRESET %s', visibility_val)
+		_p(1, 'CXX_VISIBILITY_PRESET %s', visibility_val)
+		_p(0, ')')
+	end
+
+	-- Inline visibility
+	local inlinesvisibility_val = generator_expression(prj, function(cfg)
+		if cfg.inlinesvisibility == "Hidden" then
+			return {"YES"}
+		end
+		return {}
+	end, one_expression)
+	if #inlinesvisibility_val > 0 then
+		_p(0, 'set_target_properties("%s" PROPERTIES VISIBILITY_INLINES_HIDDEN %s)', prj.name, inlinesvisibility_val)
+	end
+
+	-- Omit frame pointer
+	local omitframepointer_options = generator_expression(prj, function(cfg)
+		local res = {}
+		if cfg.omitframepointer then
+			if cfg.omitframepointer == "On" then
+				table.insert(res, '$<$<CXX_COMPILER_ID:MSVC>:/Oy>')
+				table.insert(res, '$<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-fomit-frame-pointer>')
+			elseif cfg.omitframepointer == "Off" then
+				table.insert(res, '$<$<CXX_COMPILER_ID:MSVC>:/Oy->')
+				table.insert(res, '$<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-fno-omit-frame-pointer>')
+			end
+		end
+		return res
+	end, table_expression)
+	if #omitframepointer_options > 0 then
+		_p(0, 'target_compile_options("%s" PRIVATE', prj.name)
+		for _, opt in ipairs(omitframepointer_options) do
+			_p(1, '%s', opt)
+		end
+		_p(0, ')')
+	end
+
+	-- Unsigned char
+	local unsignedchar_options = generator_expression(prj, function(cfg)
+		local res = {}
+		if cfg.unsignedchar then
+			table.insert(res, '$<$<CXX_COMPILER_ID:MSVC>:/J>')
+			table.insert(res, '$<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-funsigned-char>')
+		end
+		return res
+	end, table_expression)
+	if #unsignedchar_options > 0 then
+		_p(0, 'target_compile_options("%s" PRIVATE', prj.name)
+		for _, opt in ipairs(unsignedchar_options) do
+			_p(1, '%s', opt)
+		end
+		_p(0, ')')
+	end
+
+	-- OpenMP
+	local openmp_options = generator_expression(prj, function(cfg)
+		if cfg.openmp == "On" then
+			return {"$<$<CXX_COMPILER_ID:MSVC>:/openmp>", "$<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-fopenmp>"}
+		end
+		return {}
+	end, table_expression)
+	if #openmp_options > 0 then
+		_p(0, 'target_compile_options("%s" PRIVATE', prj.name)
+		for _, opt in ipairs(openmp_options) do
+			_p(1, '%s', opt)
+		end
+		_p(0, ')')
+	end
+
+	-- Struct member alignment
+	local structmemberalign_options = generator_expression(prj, function(cfg)
+		local res = {}
+		if cfg.structmemberalign then
+			local val = tostring(cfg.structmemberalign)
+			table.insert(res, '$<$<CXX_COMPILER_ID:MSVC>:/Zp' .. val .. '>')
+			table.insert(res, '$<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-fpack-struct=' .. val .. '>')
+		end
+		return res
+	end, table_expression)
+	if #structmemberalign_options > 0 then
+		_p(0, 'target_compile_options("%s" PRIVATE', prj.name)
+		for _, opt in ipairs(structmemberalign_options) do
+			_p(1, '%s', opt)
+		end
+		_p(0, ')')
+	end
+
+	-- Buffer security check
+	local buffersecuritycheck_options = generator_expression(prj, function(cfg)
+		local res = {}
+		if cfg.buffersecuritycheck then
+			if cfg.buffersecuritycheck == "On" then
+				table.insert(res, '$<$<CXX_COMPILER_ID:MSVC>:/GS>')
+				table.insert(res, '$<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-fstack-protector>')
+			elseif cfg.buffersecuritycheck == "Off" then
+				table.insert(res, '$<$<CXX_COMPILER_ID:MSVC>:/GS->')
+				table.insert(res, '$<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-fno-stack-protector>')
+			end
+		end
+		return res
+	end, table_expression)
+	if #buffersecuritycheck_options > 0 then
+		_p(0, 'target_compile_options("%s" PRIVATE', prj.name)
+		for _, opt in ipairs(buffersecuritycheck_options) do
+			_p(1, '%s', opt)
+		end
+		_p(0, ')')
+	end
+
+	-- Strict aliasing
+	local strictaliasing_options = generator_expression(prj, function(cfg)
+		local res = {}
+		if cfg.strictaliasing then
+			if cfg.strictaliasing == "Off" then
+				table.insert(res, '$<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-fno-strict-aliasing>')
+			elseif cfg.strictaliasing == "Level1" then
+				table.insert(res, '$<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-fstrict-aliasing>')
+				table.insert(res, '$<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wstrict-aliasing=1>')
+			elseif cfg.strictaliasing == "Level2" then
+				table.insert(res, '$<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-fstrict-aliasing>')
+				table.insert(res, '$<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wstrict-aliasing=2>')
+			elseif cfg.strictaliasing == "Level3" then
+				table.insert(res, '$<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-fstrict-aliasing>')
+				table.insert(res, '$<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wstrict-aliasing=3>')
+			end
+		end
+		return res
+	end, table_expression)
+	if #strictaliasing_options > 0 then
+		_p(0, 'target_compile_options("%s" PRIVATE', prj.name)
+		for _, opt in ipairs(strictaliasing_options) do
+			_p(1, '%s', opt)
+		end
+		_p(0, ')')
+	end
+
+	-- Edit and Continue
+	local editandcontinue_options = generator_expression(prj, function(cfg)
+		local res = {}
+		if cfg.editandcontinue == "On" then
+			table.insert(res, '$<$<CXX_COMPILER_ID:MSVC>:/ZI>')
+		elseif cfg.editandcontinue == "Off" then
+			-- default, no special flag needed
+		end
+		return res
+	end, table_expression)
+	if #editandcontinue_options > 0 then
+		_p(0, 'target_compile_options("%s" PRIVATE', prj.name)
+		for _, opt in ipairs(editandcontinue_options) do
+			_p(1, '%s', opt)
+		end
+		_p(0, ')')
+	end
+
+	-- Multi-processor compilation
+	local multiprocessor_options = generator_expression(prj, function(cfg)
+		local res = {}
+		if cfg.multiprocessorcompile == "On" then
+			table.insert(res, '$<$<CXX_COMPILER_ID:MSVC>:/MP>')
+		end
+		return res
+	end, table_expression)
+	if #multiprocessor_options > 0 then
+		_p(0, 'target_compile_options("%s" PRIVATE', prj.name)
+		for _, opt in ipairs(multiprocessor_options) do
+			_p(1, '%s', opt)
+		end
+		_p(0, ')')
+	end
+
+	-- Vector extensions
+	local vectorext_options = generator_expression(prj, function(cfg)
+		local res = {}
+		if cfg.vectorextensions then
+			local ext = cfg.vectorextensions
+			if ext == "AVX" then
+				table.insert(res, '$<$<CXX_COMPILER_ID:MSVC>:/arch:AVX>')
+				table.insert(res, '$<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-mavx>')
+			elseif ext == "AVX2" then
+				table.insert(res, '$<$<CXX_COMPILER_ID:MSVC>:/arch:AVX2>')
+				table.insert(res, '$<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-mavx2>')
+			elseif ext == "SSE" then
+				table.insert(res, '$<$<CXX_COMPILER_ID:MSVC>:/arch:SSE>')
+				table.insert(res, '$<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-msse>')
+			elseif ext == "SSE2" then
+				table.insert(res, '$<$<CXX_COMPILER_ID:MSVC>:/arch:SSE2>')
+				table.insert(res, '$<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-msse2>')
+			elseif ext == "SSE3" then
+				table.insert(res, '$<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-msse3>')
+			elseif ext == "SSSE3" then
+				table.insert(res, '$<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-mssse3>')
+			elseif ext == "SSE4.1" then
+				table.insert(res, '$<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-msse4.1>')
+			elseif ext == "SSE4.2" then
+				table.insert(res, '$<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-msse4.2>')
+			elseif ext == "IA32" then
+				table.insert(res, '$<$<CXX_COMPILER_ID:MSVC>:/arch:IA32>')
+			elseif ext == "ALTIVEC" then
+				table.insert(res, '$<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-maltivec>')
+			end
+		end
+		return res
+	end, table_expression)
+	if #vectorext_options > 0 then
+		_p(0, 'target_compile_options("%s" PRIVATE', prj.name)
+		for _, opt in ipairs(vectorext_options) do
+			_p(1, '%s', opt)
+		end
+		_p(0, ')')
+	end
+
+	-- ISA extensions
+	local isaext_options = generator_expression(prj, function(cfg)
+		local res = {}
+		if cfg.isaextensions and #cfg.isaextensions > 0 then
+			local isa_map = {
+				["MOVBE"] = "-mmovbe",
+				["POPCNT"] = "-mpopcnt",
+				["PCLMUL"] = "-mpclmul",
+				["LZCNT"] = "-mlzcnt",
+				["BMI"] = "-mbmi",
+				["BMI2"] = "-mbmi2",
+				["F16C"] = "-mf16c",
+				["AES"] = "-maes",
+				["FMA"] = "-mfma",
+				["FMA4"] = "-mfma4",
+				["RDRND"] = "-mrdrnd",
+				["SHA"] = "-msha",
+			}
+			for _, ext in ipairs(cfg.isaextensions) do
+				local flag = isa_map[ext]
+				if flag then
+					table.insert(res, '$<$<NOT:$<CXX_COMPILER_ID:MSVC>>:' .. flag .. '>')
+				end
+			end
+		end
+		return res
+	end, table_expression)
+	if #isaext_options > 0 then
+		_p(0, 'target_compile_options("%s" PRIVATE', prj.name)
+		for _, opt in ipairs(isaext_options) do
+			_p(1, '%s', opt)
+		end
+		_p(0, ')')
+	end
+
+	-- CFLAGS/CXXFLAGS from toolset
 	local msvc_cflags = generator_expression(prj, function(cfg) return table.translate(p.tools.msc.getcflags(cfg), function(s) return string.format('$<$<COMPILE_LANG_AND_ID:C,MSVC>:%s>', s) end) end, table_expression)
 	local msvc_cxxflags = generator_expression(prj, function(cfg) return table.translate(p.tools.msc.getcxxflags(cfg), function(s) return string.format('$<$<COMPILE_LANG_AND_ID:CXX,MSVC>:%s>', s) end) end, table_expression)
 	local gcc_cflags = generator_expression(prj, function(cfg) return table.translate(p.tools.gcc.getcflags(cfg), function(s) return string.format('$<$<AND:$<NOT:$<C_COMPILER_ID:MSVC>>,$<COMPILE_LANGUAGE:C>>:%s>', s) end) end, table_expression)
@@ -442,8 +1233,23 @@ function m.generate(prj)
 		_p(0, ')')
 	end
 
+	-- system library dirs
+	local syslibdirs = generator_expression(prj, function(cfg)
+		if cfg.syslibdirs and #cfg.syslibdirs > 0 then
+			return cfg.syslibdirs
+		end
+		return {}
+	end, table_expression)
+	if #syslibdirs > 0 then
+		_p(0, 'target_link_directories("%s" PRIVATE', prj.name)
+		for _, libdir in ipairs(syslibdirs) do
+			_p(1, '"%s"', libdir)
+		end
+		_p(0, ')')
+	end
+
 	-- libs
-	local libs = generator_expression(prj, function(cfg) 
+	local libs = generator_expression(prj, function(cfg)
 		local toolset = m.getcompiler(cfg)
 		local isclangorgcc = toolset == p.tools.clang or toolset == p.tools.gcc
 		local uselinkgroups = isclangorgcc and cfg.linkgroups == p.ON
@@ -490,24 +1296,148 @@ function m.generate(prj)
 		end
 		_p(0, ')')
 	end
-	local sanitize_addresss_options = generator_expression(prj, function(cfg)
-		if cfg.sanitize and #cfg.sanitize ~= 0 and table.contains(cfg.sanitize, "Address") then
-			return {'$<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-fsanitize=address>'}
-		end
-		return {}
-	end, one_expression)
-	local sanitize_fuzzer_options = generator_expression(prj, function(cfg)
-		if cfg.sanitize and #cfg.sanitize ~= 0 and table.contains(cfg.sanitize, "Fuzzer") then
-			return {'$<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-fsanitize=fuzzer>'}
-		end
-		return {}
-	end, one_expression)
 
-	if sanitize_addresss_options ~= "" then
-		_p(0, 'target_link_options("%s" PRIVATE %s)', prj.name, sanitize_addresss_options)
+	-- Linker fatal warnings
+	local linkerfatalwarnings_opts = generator_expression(prj, function(cfg)
+		local res = {}
+		if cfg.linkerfatalwarnings and #cfg.linkerfatalwarnings > 0 then
+			table.insert(res, '$<$<CXX_COMPILER_ID:MSVC>:/WX>')
+			table.insert(res, '$<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wl,--fatal-warnings>')
+		end
+		return res
+	end, table_expression)
+	if #linkerfatalwarnings_opts > 0 then
+		_p(0, 'target_link_options("%s" PRIVATE', prj.name)
+		for _, opt in ipairs(linkerfatalwarnings_opts) do
+			_p(1, '%s', opt)
+		end
+		_p(0, ')')
 	end
-	if sanitize_fuzzer_options ~= "" then
-		_p(0, 'target_link_options("%s" PRIVATE %s)', prj.name, sanitize_fuzzer_options)
+
+	-- Linker selection (LLD)
+	local linker_options = generator_expression(prj, function(cfg)
+		local res = {}
+		if cfg.linker == "LLD" then
+			table.insert(res, '$<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-fuse-ld=lld>')
+		end
+		return res
+	end, table_expression)
+	if #linker_options > 0 then
+		_p(0, 'target_link_options("%s" PRIVATE', prj.name)
+		for _, opt in ipairs(linker_options) do
+			_p(1, '%s', opt)
+		end
+		_p(0, ')')
+	end
+
+	-- OpenMP link libraries
+	local openmp_link_options = generator_expression(prj, function(cfg)
+		if cfg.openmp == "On" then
+			return {"$<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-fopenmp>"}
+		end
+		return {}
+	end, table_expression)
+	if #openmp_link_options > 0 then
+		_p(0, 'target_link_options("%s" PRIVATE', prj.name)
+		for _, opt in ipairs(openmp_link_options) do
+			_p(1, '%s', opt)
+		end
+		_p(0, ')')
+	end
+
+	-- Sanitizer link options (expanded to cover all sanitizer types)
+	local sanitize_link_options = generator_expression(prj, function(cfg)
+		local res = {}
+		if cfg.sanitize and #cfg.sanitize ~= 0 then
+			if table.contains(cfg.sanitize, "Address") then
+				table.insert(res, '$<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-fsanitize=address>')
+			end
+			if table.contains(cfg.sanitize, "Fuzzer") then
+				table.insert(res, '$<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-fsanitize=fuzzer>')
+			end
+			if table.contains(cfg.sanitize, "Thread") then
+				table.insert(res, '$<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-fsanitize=thread>')
+			end
+			if table.contains(cfg.sanitize, "UndefinedBehavior") then
+				table.insert(res, '$<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-fsanitize=undefined>')
+			end
+		end
+		return res
+	end, table_expression)
+	if #sanitize_link_options > 0 then
+		_p(0, 'target_link_options("%s" PRIVATE', prj.name)
+		for _, opt in ipairs(sanitize_link_options) do
+			_p(1, '%s', opt)
+		end
+		_p(0, ')')
+	end
+
+	-- Sanitizer compile options
+	local sanitize_compile_options = generator_expression(prj, function(cfg)
+		local res = {}
+		if cfg.sanitize and #cfg.sanitize ~= 0 then
+			if table.contains(cfg.sanitize, "Address") then
+				table.insert(res, '$<$<CXX_COMPILER_ID:MSVC>:/fsanitize=address>')
+				table.insert(res, '$<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-fsanitize=address>')
+			end
+			if table.contains(cfg.sanitize, "Fuzzer") then
+				table.insert(res, '$<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-fsanitize=fuzzer>')
+			end
+			if table.contains(cfg.sanitize, "Thread") then
+				table.insert(res, '$<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-fsanitize=thread>')
+			end
+			if table.contains(cfg.sanitize, "UndefinedBehavior") then
+				table.insert(res, '$<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-fsanitize=undefined>')
+			end
+		end
+		return res
+	end, table_expression)
+	if #sanitize_compile_options > 0 then
+		_p(0, 'target_compile_options("%s" PRIVATE', prj.name)
+		for _, opt in ipairs(sanitize_compile_options) do
+			_p(1, '%s', opt)
+		end
+		_p(0, ')')
+	end
+
+	-- RPATH / runpath directories
+	local runpathdirs = generator_expression(prj, function(cfg)
+		if cfg.runpathdirs and #cfg.runpathdirs > 0 then
+			return cfg.runpathdirs
+		end
+		return {}
+	end, table_expression)
+	if #runpathdirs > 0 then
+		_p(0, 'set_target_properties("%s" PROPERTIES', prj.name)
+		_p(1, 'INSTALL_RPATH "%s"', table.implode(runpathdirs, "", "", ";"))
+		_p(1, 'BUILD_WITH_INSTALL_RPATH TRUE')
+		_p(0, ')')
+	end
+
+	-- Entry point
+	local entrypoint = generator_expression(prj, function(cfg)
+		if cfg.entrypoint and cfg.entrypoint ~= "" then
+			return {cfg.entrypoint}
+		end
+		return {}
+	end, one_expression)
+	if #entrypoint > 0 then
+		_p(0, 'target_link_options("%s" PRIVATE', prj.name)
+		_p(1, '$<$<CXX_COMPILER_ID:MSVC>:/ENTRY:%s>', entrypoint)
+		_p(1, '$<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-e>')
+		_p(1, '$<$<NOT:$<CXX_COMPILER_ID:MSVC>>:%s>', entrypoint)
+		_p(0, ')')
+	end
+
+	-- System version (Windows SDK version)
+	local systemversion = generator_expression(prj, function(cfg)
+		if cfg.systemversion and cfg.systemversion ~= "" then
+			return {cfg.systemversion}
+		end
+		return {}
+	end, one_expression)
+	if #systemversion > 0 then
+		_p(0, 'set_target_properties("%s" PROPERTIES VS_WINDOWS_TARGET_PLATFORM_VERSION "%s")', prj.name, systemversion)
 	end
 
 	-- precompiled headers
@@ -557,7 +1487,7 @@ function m.generate(prj)
 	-- custom command
 --	local custom_output_directories_by_cfg = {}
 	local custom_commands_by_filename = {}
-	
+
 	local function addCustomCommand(cfg, fileconfig, filename)
 		if #fileconfig.buildcommands == 0 or #fileconfig.buildoutputs == 0 then
 			return
@@ -574,10 +1504,10 @@ function m.generate(prj)
 		custom_commands_by_filename[filename][cfg]["compilebuildoutputs"] = fileconfig.compilebuildoutputs
 
 		if fileconfig.buildmessage then
-			table.insert(custom_commands_by_filename[filename][cfg]["commands"], os.translateCommandsAndPaths('{ECHO} ' .. m.quote(fileconfig.buildmessage), cfg.project.basedir, cfg.project.location))
+			table.insert(custom_commands_by_filename[filename][cfg]["commands"], os.translateCommandsAndPaths('{ECHO} ' .. m.quote(fileconfig.buildmessage), cfg.project.basedir, cfg.project.location, cmake_command_tokens))
 		end
 		for _, command in ipairs(fileconfig.buildcommands) do
-			table.insert(custom_commands_by_filename[filename][cfg]["commands"], os.translateCommandsAndPaths(command, cfg.project.basedir, cfg.project.location))
+			table.insert(custom_commands_by_filename[filename][cfg]["commands"], os.translateCommandsAndPaths(command, cfg.project.basedir, cfg.project.location, cmake_command_tokens))
 		end
 		if filename ~= "" then
 			table.insert(custom_commands_by_filename[filename][cfg]["depends"], filename)
@@ -606,7 +1536,7 @@ function m.generate(prj)
 			end
 		end
 	})
-	
+
 --[[
 	local custom_output_directories = generator_expression(prj, function(cfg) return table.difference(table.unique(custom_output_directories_by_cfg[cfg]), {"."}) end, table_expression)
 	if not is_empty(custom_output_directories) then
@@ -651,7 +1581,7 @@ function m.generate(prj)
 				local target_name = 'CUSTOM_TARGET_' .. config_prefix .. filename:gsub('/', '_'):gsub('\\', '_')
 				--custom_target_by_cfg[cfg] = target_name
 				_p(0, 'add_custom_target(%s DEPENDS %s)', target_name, table.implode(custom_ouput_by_cfg[cfg]["outputs"],"",""," "))
-				
+
 				_p(0, 'add_dependencies(%s %s)', prj.name, target_name)
 				if same_output_by_cfg then break end
 			end
