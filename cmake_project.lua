@@ -871,10 +871,10 @@ function m.generate(prj)
 		if cfg.rtti then
 			if cfg.rtti == "Off" then
 				table.insert(res, '$<$<CXX_COMPILER_ID:MSVC>:/GR->')
-				table.insert(res, '$<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-fno-rtti>')
+				table.insert(res, '$<$<AND:$<NOT:$<CXX_COMPILER_ID:MSVC>>,$<COMPILE_LANGUAGE:CXX>>:-fno-rtti>')
 			elseif cfg.rtti == "On" then
 				table.insert(res, '$<$<CXX_COMPILER_ID:MSVC>:/GR>')
-				table.insert(res, '$<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-frtti>')
+				table.insert(res, '$<$<AND:$<NOT:$<CXX_COMPILER_ID:MSVC>>,$<COMPILE_LANGUAGE:CXX>>:-frtti>')
 			end
 		end
 		return res
