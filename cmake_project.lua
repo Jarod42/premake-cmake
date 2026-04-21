@@ -1558,7 +1558,7 @@ function m.generate(prj)
 		--local depends = generator_expression(prj, function(cfg) return custom_ouput_by_cfg[cfg]["depends"] end, table_expression)
 
 		for cfg in project.eachconfig(prj) do
-			_p(0, 'add_custom_command(TARGET OUTPUT %s', table.implode(custom_ouput_by_cfg[cfg]["outputs"], "", "", " "))
+			_p(0, 'add_custom_command(OUTPUT %s', table.implode(custom_ouput_by_cfg[cfg]["outputs"], "", "", " "))
 			custom_outputs_directories = table.difference(table.unique(project.getrelative(prj, table.translate(custom_ouput_by_cfg[cfg]["outputs"], path.getdirectory))), {".", ""})
 			if not is_empty(custom_outputs_directories) then
 				_p(1, 'COMMAND ${CMAKE_COMMAND} -E make_directory %s', table.implode(custom_outputs_directories, "", "", " "))
