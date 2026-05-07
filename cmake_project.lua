@@ -381,7 +381,7 @@ function m.generate(prj)
 	if #targetprefix > 0 then
 		_p(0, 'set_target_properties("%s" PROPERTIES PREFIX "%s")', prj.name, targetprefix)
 	end
-
+	--[[ Incompatible with premake-qt
 	local targetsuffix = generator_expression(prj, function(cfg)
 		if cfg.targetsuffix and cfg.targetsuffix ~= "" then
 			return {cfg.targetsuffix}
@@ -401,6 +401,7 @@ function m.generate(prj)
 	if #targetextension > 0 then
 		_p(0, 'set_target_properties("%s" PROPERTIES SUFFIX "%s")', prj.name, targetextension)
 	end
+    --]]
 
 	-- output dir
 	_p(0, 'set_target_properties("%s" PROPERTIES', prj.name)
