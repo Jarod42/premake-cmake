@@ -470,7 +470,7 @@ function m.generate(prj)
 	if #includedirs > 0 then
 		_p(0, 'target_include_directories("%s" PRIVATE', prj.name)
 		for _, dir in ipairs(includedirs) do
-			_p(1, '%s', dir)
+			_p(1, '${CMAKE_CURRENT_SOURCE_DIR}/%s', path.getrelative(prj.workspace.location, dir))
 		end
 		_p(0, ')')
 	end
